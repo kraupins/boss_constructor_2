@@ -20,6 +20,7 @@ const TABS = [
   { id: 'builder', label: 'Конструктор' },
   { id: 'stats', label: 'Статы' },
   { id: 'simulation', label: 'Симуляция' },
+  { id: 'summary', label: 'Итог' },
   { id: 'formulas', label: 'Формулы' }
 ];
 
@@ -39,6 +40,37 @@ function Field({ label, hint, children }) {
       <span className="field-label">{label}</span>
       {children}
       {hint ? <span className="field-hint">{hint}</span> : null}
+    </label>
+  );
+}
+
+
+function AutoNumberField({ label, value, autoValue, hint, onChange }) {
+  const isAuto = value === '' || value === null || value === undefined;
+  const displayAuto = typeof autoValue === 'number' ? round(autoValue, 2) : autoValue;
+
+  return (
+    <label className={`field auto-field ${isAuto ? 'is-auto' : 'is-manual'}`}>
+      <span className="field-label">{label}</span>
+      <div className="auto-input-row">
+        <input
+          {...numberInputProps}
+          placeholder={`auto: ${displayAuto}`}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        <button
+          type="button"
+          className={isAuto ? 'tiny-button lock' : 'tiny-button'}
+          onClick={() => onChange(isAuto ? String(displayAuto) : '')}
+          title={isAuto ? 'Записать текущее auto-значение как ручное' : 'Очистить поле и снова считать автоматически'}
+        >
+          {isAuto ? 'Зафикс.' : 'Auto'}
+        </button>
+      </div>
+      <span className="field-hint">
+        {isAuto ? `Сейчас auto: ${displayAuto}. ${hint ?? ''}` : `Ручное значение. Auto было бы: ${displayAuto}.`}
+      </span>
     </label>
   );
 }
@@ -363,7 +395,7 @@ function SimulationResult({ result }) {
   );
 }
 
-function BuilderTab({ form, setForm, setValue, resetWeights }) {
+function BuilderTab({ form, setForm, setValue, resetWeights, autoConfig }) {
   return (
     <div className="tab-grid">
       <section className="panel">
@@ -395,24 +427,48 @@ function BuilderTab({ form, setForm, setValue, resetWeights }) {
       <section className="panel">
         <SectionTitle eyebrow="опционально" title="Тонкая настройка босса" text="Можно оставить auto, если нужен быстрый расчёт по типу босса." />
         <div className="fields-grid three">
-          <Field label="Броня босса, %" hint="auto = из типа босса">
-            <input {...numberInputProps} placeholder="auto" value={form.bossArmor} onChange={(e) => setValue('bossArmor', e.target.value)} />
-          </Field>
-          <Field label="Атака раз в N ходов" hint="auto">
-            <input {...numberInputProps} placeholder="auto" value={form.attackInterval} onChange={(e) => setValue('attackInterval', e.target.value)} />
-          </Field>
-          <Field label="Части атаки" hint="auto">
-            <input {...numberInputProps} placeholder="auto" value={form.attackChunks} onChange={(e) => setValue('attackChunks', e.target.value)} />
-          </Field>
-          <Field label="Реген раз в N ходов" hint="auto">
-            <input {...numberInputProps} placeholder="auto" value={form.regenInterval} onChange={(e) => setValue('regenInterval', e.target.value)} />
-          </Field>
-          <Field label="Реген, % от MaxHP" hint="auto">
-            <input {...numberInputProps} placeholder="auto" value={form.regenPercent} onChange={(e) => setValue('regenPercent', e.target.value)} />
-          </Field>
-          <Field label="Целевая длина боя" hint="auto = зависит от сложности">
-            <input {...numberInputProps} placeholder="auto" value={form.targetTurns} onChange={(e) => setValue('targetTurns', e.target.value)} />
-          </Field>
+          <AutoNumberField
+            label="Броня босса, %"
+            value={form.bossArmor}
+            autoValue={autoConfig.bossArmor}
+            hint="Из типа босса + поправка сложности."
+            onChange={(value) => setValue('bossArmor', value)}
+          />
+          <AutoNumberField
+            label="Атака раз в N ходов"
+            value={form.attackInterval}
+            autoValue={autoConfig.attackInterval}
+            hint="Из типа босса + поправка сложности."
+            onChange={(value) => setValue('attackInterval', value)}
+          />
+          <AutoNumberField
+            label="Части атаки"
+            value={form.attackChunks}
+            autoValue={autoConfig.attackChunks}
+            hint="Чем больше частей, тем меньше резкого рандома."
+            onChange={(value) => setValue('attackChunks', value)}
+          />
+          <AutoNumberField
+            label="Реген раз в N ходов"
+            value={form.regenInterval}
+            autoValue={autoConfig.regenInterval}
+            hint="Из типа босса + поправка сложности."
+            onChange={(value) => setValue('regenInterval', value)}
+          />
+          <AutoNumberField
+            label="Реген, % от MaxHP"
+            value={form.regenPercent}
+            autoValue={autoConfig.regenPercent}
+            hint="Авто уже учитывает множитель сложности."
+            onChange={(value) => setValue('regenPercent', value)}
+          />
+          <AutoNumberField
+            label="Целевая длина боя"
+            value={form.targetTurns}
+            autoValue={autoConfig.targetTurns}
+            hint="Меньше ходов = выше урон мечей."
+            onChange={(value) => setValue('targetTurns', value)}
+          />
         </div>
       </section>
 
@@ -562,6 +618,172 @@ function SimulationTab({ config, simulation, onSimulate, runIndex }) {
   );
 }
 
+
+function buildExportPayload(config, simulation) {
+  return {
+    boss: {
+      name: config.bossName,
+      type: config.bossType.label,
+      difficulty: config.difficulty.label,
+      baseHp: config.baseBossHp,
+      maxHp: config.bossMaxHp,
+      armorPercent: config.bossArmor,
+      targetTurns: config.targetTurns
+    },
+    bossAttack: {
+      rawDamage: config.attackRawDamage,
+      intervalTurns: config.attackInterval,
+      chunks: config.attackChunks,
+      regenIntervalTurns: config.regenInterval,
+      regenPercent: round(config.regenPercent, 2)
+    },
+    player: {
+      permanentHp: config.playerPermanentHp,
+      battleHp: config.playerBattleHp,
+      baseArmorPercent: config.playerArmor,
+      strengthBonusPercent: config.strengthBonus,
+      healthBonusPercent: config.healthBonus,
+      defenseBonusPercent: config.defenseBonus,
+      battleArmorCapPercent: config.battleArmorCap
+    },
+    tiles: {
+      woodSwordDamage: config.swordDamage.wood,
+      ironSwordDamage: config.swordDamage.iron,
+      goldSwordDamage: config.swordDamage.gold,
+      diamondSwordDamage: config.swordDamage.diamond,
+      clayBallDamage: config.clayDamage,
+      diamondShieldPerBallPercent: config.shieldPerBall,
+      bedrockBreakPerBallPercent: config.bedrockBreakPerBall,
+      spawnWeights: config.weights
+    },
+    simulation: simulation
+      ? {
+          attempts: simulation.attempts,
+          wins: simulation.wins,
+          losses: simulation.losses,
+          timeouts: simulation.timeouts,
+          winRatePercent: simulation.winRate,
+          firstWinAttempt: simulation.firstWinAttempt,
+          averageTurns: simulation.avgTurns,
+          averagePlayerHpOnWin: simulation.avgPlayerHpOnWin
+        }
+      : null
+  };
+}
+
+function buildTextReport(config, simulation) {
+  const payload = buildExportPayload(config, simulation);
+  const lines = [];
+
+  lines.push(`БОСС: ${payload.boss.name}`);
+  lines.push(`Тип: ${payload.boss.type}`);
+  lines.push(`Сложность: ${payload.boss.difficulty}`);
+  lines.push('');
+  lines.push('ОСНОВНЫЕ СТАТЫ БОССА');
+  lines.push(`HP: ${payload.boss.maxHp} (база: ${payload.boss.baseHp})`);
+  lines.push(`Броня: ${payload.boss.armorPercent}%`);
+  lines.push(`Целевая длина боя: ${payload.boss.targetTurns} ходов`);
+  lines.push('');
+  lines.push('АТАКА И РЕГЕН БОССА');
+  lines.push(`Урон атаки: ${payload.bossAttack.rawDamage}`);
+  lines.push(`Интервал атаки: раз в ${payload.bossAttack.intervalTurns} хода`);
+  lines.push(`Части атаки: ${payload.bossAttack.chunks}`);
+  lines.push(`Реген: раз в ${payload.bossAttack.regenIntervalTurns} хода по ${payload.bossAttack.regenPercent}% MaxHP`);
+  lines.push('');
+  lines.push('ИГРОК ДЛЯ РАСЧЁТА');
+  lines.push(`HP игрока: ${payload.player.battleHp} (постоянное: ${payload.player.permanentHp})`);
+  lines.push(`Броня игрока: ${payload.player.baseArmorPercent}%`);
+  lines.push(`Бонус силы: ${payload.player.strengthBonusPercent}%`);
+  lines.push(`Бонус здоровья: ${payload.player.healthBonusPercent}%`);
+  lines.push(`Бонус защиты: ${payload.player.defenseBonusPercent}%`);
+  lines.push('');
+  lines.push('ТАЙЛЫ');
+  lines.push(`Деревянный меч: ${payload.tiles.woodSwordDamage} урона`);
+  lines.push(`Железный меч: ${payload.tiles.ironSwordDamage} урона`);
+  lines.push(`Золотой меч: ${payload.tiles.goldSwordDamage} урона`);
+  lines.push(`Алмазный меч: ${payload.tiles.diamondSwordDamage} урона`);
+  lines.push(`Глиняный шар: ${payload.tiles.clayBallDamage} чистого урона`);
+  lines.push(`Алмазный шар: +${payload.tiles.diamondShieldPerBallPercent}% защиты за тайл`);
+  lines.push(`Бедрок шар: -${payload.tiles.bedrockBreakPerBallPercent}% брони босса за тайл`);
+  lines.push('');
+
+  if (payload.simulation) {
+    lines.push('СИМУЛЯЦИЯ');
+    lines.push(`Попыток: ${payload.simulation.attempts}`);
+    lines.push(`Побед: ${payload.simulation.wins}`);
+    lines.push(`Поражений: ${payload.simulation.losses}`);
+    lines.push(`Таймаутов: ${payload.simulation.timeouts}`);
+    lines.push(`Win rate: ${payload.simulation.winRatePercent}%`);
+    lines.push(`Первая победа: ${payload.simulation.firstWinAttempt ?? 'нет'}`);
+    lines.push(`Средняя длина: ${payload.simulation.averageTurns} ходов`);
+    lines.push(`Среднее HP игрока при победе: ${payload.simulation.averagePlayerHpOnWin}`);
+  } else {
+    lines.push('СИМУЛЯЦИЯ: ещё не запускалась');
+  }
+
+  lines.push('');
+  lines.push('ФОРМУЛЫ');
+  config.formulas.forEach((formula) => lines.push(`- ${formula}`));
+
+  return lines.join('\n');
+}
+
+function SummaryTab({ config, simulation, copyStatus, onCopy }) {
+  const payload = buildExportPayload(config, simulation);
+  const report = buildTextReport(config, simulation);
+  const json = JSON.stringify(payload, null, 2);
+  const advice = buildBalanceAdvice(config, simulation);
+
+  return (
+    <div className="tab-grid one">
+      <section className="panel">
+        <div className="panel-title-row top-align">
+          <SectionTitle
+            eyebrow="итог"
+            title="Готовые значения босса"
+            text="Здесь собраны финальные параметры, которые можно быстро скопировать в документ, таблицу или будущий игровой конфиг."
+          />
+          <div className="actions-row wrap">
+            <button className="secondary-button" onClick={() => onCopy(report, 'Текстовый отчёт скопирован')}>Копировать отчёт</button>
+            <button className="primary-button" onClick={() => onCopy(json, 'JSON скопирован')}>Копировать JSON</button>
+          </div>
+        </div>
+        {copyStatus ? <div className="copy-status">{copyStatus}</div> : null}
+
+        <div className="summary-cards">
+          <StatCard label="Босс" value={config.bossName} hint={`${config.bossType.label} / ${config.difficulty.label}`} />
+          <StatCard label="HP / броня" value={`${config.bossMaxHp} / ${config.bossArmor}%`} hint={`База HP: ${config.baseBossHp}`} />
+          <StatCard label="Атака" value={config.attackRawDamage} hint={`раз в ${config.attackInterval} хода, частей: ${config.attackChunks}`} />
+          <StatCard label="Реген" value={`${round(config.regenPercent, 2)}%`} hint={`раз в ${config.regenInterval} хода`} />
+        </div>
+      </section>
+
+      <section className="panel">
+        <SectionTitle eyebrow="копируемый отчёт" title="Текст для ГДД / заметок" text="Можно скопировать как обычный текст и вставить в Notion, Google Docs или задачу." />
+        <textarea className="export-box" readOnly value={report} />
+      </section>
+
+      <section className="panel">
+        <SectionTitle eyebrow="конфиг" title="JSON для будущей интеграции" text="Это не финальный формат для Unity, но уже удобная основа: ключи стабильные и разделены по блокам." />
+        <textarea className="export-box code" readOnly value={json} />
+      </section>
+
+      <section className="panel">
+        <SectionTitle eyebrow="рекомендации" title="Что поправить дальше" />
+        <div className="advice-list">
+          {advice.map((item) => (
+            <div className="advice-item" key={item.title}>
+              <strong>{item.title}</strong>
+              <p>{item.text}</p>
+              <span>{item.impact}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function FormulasTab({ config }) {
   return (
     <div className="tab-grid one">
@@ -603,7 +825,17 @@ export default function App() {
   const [simulation, setSimulation] = useState(null);
   const [activeTab, setActiveTab] = useState('builder');
   const [runIndex, setRunIndex] = useState(0);
+  const [copyStatus, setCopyStatus] = useState('');
   const config = useMemo(() => calculateConfig(form), [form]);
+  const autoConfig = useMemo(() => calculateConfig({
+    ...form,
+    bossArmor: '',
+    attackInterval: '',
+    regenInterval: '',
+    regenPercent: '',
+    attackChunks: '',
+    targetTurns: ''
+  }), [form]);
   const status = getBalanceStatus(simulation);
 
   const setValue = (key, value) => {
@@ -625,6 +857,24 @@ export default function App() {
 
   const resetWeights = () => {
     setForm((current) => ({ ...current, weights: { ...DEFAULT_WEIGHTS } }));
+  };
+
+  const copyText = async (text, message) => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const element = document.createElement('textarea');
+        element.value = text;
+        document.body.appendChild(element);
+        element.select();
+        document.execCommand('copy');
+        document.body.removeChild(element);
+      }
+      setCopyStatus(message);
+    } catch (error) {
+      setCopyStatus('Не получилось скопировать автоматически — выдели текст вручную.');
+    }
   };
 
   return (
@@ -666,13 +916,17 @@ export default function App() {
 
       <section className="content single">
         {activeTab === 'builder' ? (
-          <BuilderTab form={form} setForm={setForm} setValue={setValue} resetWeights={resetWeights} />
+          <BuilderTab form={form} setForm={setForm} setValue={setValue} resetWeights={resetWeights} autoConfig={autoConfig} />
         ) : null}
 
         {activeTab === 'stats' ? <StatsTab config={config} /> : null}
 
         {activeTab === 'simulation' ? (
           <SimulationTab config={config} simulation={simulation} onSimulate={simulate} runIndex={runIndex} />
+        ) : null}
+
+        {activeTab === 'summary' ? (
+          <SummaryTab config={config} simulation={simulation} copyStatus={copyStatus} onCopy={copyText} />
         ) : null}
 
         {activeTab === 'formulas' ? <FormulasTab config={config} /> : null}
