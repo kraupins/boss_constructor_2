@@ -764,6 +764,171 @@ export function simulateBattle(config, options = {}) {
   };
 }
 
+
+export function createPlayerBattle(config, options = {}) {
+  const seed = options.seed ?? `player-${Date.now()}`;
+  const rng = createRng(seed);
+  let board = reshuffleBoard(config, rng);
+  let reshuffles = 0;
+
+  while (getLegalMoves(board).length === 0 && reshuffles < 30) {
+    board = reshuffleBoard(config, rng);
+    reshuffles += 1;
+  }
+
+  return {
+    seed,
+    board,
+    selected: null,
+    randomStep: 1,
+    reshuffles,
+    status: 'playing',
+    message: 'Выбери тайл и соседний тайл, чтобы сделать swap. Ход засчитывается только если появляется матч 3+.',
+    state: {
+      bossHp: config.bossMaxHp,
+      playerHp: config.playerBattleHp,
+      diamondShield: 0,
+      armorBreak: 0,
+      attackCounter: config.attackInterval,
+      regenCounter: config.regenInterval,
+      turn: 0
+    },
+    log: [
+      `Трай начат. Босс: ${config.bossName}. HP босса ${config.bossMaxHp}, HP игрока ${config.playerBattleHp}.`,
+      `Цель: убить босса до смерти игрока. Атака босса через ${config.attackInterval} хода, реген через ${config.regenInterval} хода.`
+    ]
+  };
+}
+
+function cloneBattle(battle) {
+  return {
+    ...battle,
+    board: cloneBoard(battle.board),
+    selected: battle.selected ? { ...battle.selected } : null,
+    state: { ...battle.state },
+    log: [...battle.log]
+  };
+}
+
+function areAdjacent(a, b) {
+  return Math.abs(a.row - b.row) + Math.abs(a.col - b.col) === 1;
+}
+
+function finishManualTurn(config, battle, rng) {
+  const resolved = resolveBoardAfterMove(battle.board, config, battle.state, rng, battle.log);
+  battle.log.push(
+    `После хода ${battle.state.turn}: HP босса ${round(battle.state.bossHp)}/${config.bossMaxHp}, HP игрока ${round(battle.state.playerHp)}/${config.playerBattleHp}, каскадов ${resolved.cascades}.`
+  );
+
+  if (battle.state.bossHp <= 0) {
+    battle.status = 'win';
+    battle.message = `Победа на ${battle.state.turn} ходу. Осталось HP игрока: ${round(battle.state.playerHp)}.`;
+    battle.log.push(battle.message);
+    return battle;
+  }
+
+  bossTurn(config, battle.state, battle.log, rng);
+
+  if (battle.state.playerHp <= 0) {
+    battle.status = 'lose';
+    battle.message = `Поражение на ${battle.state.turn} ходу. У босса осталось HP: ${round(battle.state.bossHp)}.`;
+    battle.log.push(battle.message);
+    return battle;
+  }
+
+  if (getLegalMoves(battle.board).length === 0) {
+    battle.board = reshuffleBoard(config, rng);
+    battle.reshuffles += 1;
+    battle.log.push(`Нет доступных ходов. Поле автоматически перемешано. Всего перемешиваний: ${battle.reshuffles}.`);
+  }
+
+  battle.message = `Ход ${battle.state.turn} завершён. Выбирай следующий swap.`;
+  return battle;
+}
+
+export function playPlayerMove(config, battle, from, to) {
+  if (!battle || battle.status !== 'playing') return battle;
+
+  const next = cloneBattle(battle);
+  next.selected = null;
+
+  if (!from || !to) {
+    next.message = 'Сначала выбери 2 соседних тайла.';
+    return next;
+  }
+
+  if (!areAdjacent(from, to)) {
+    next.message = 'Можно менять местами только соседние тайлы.';
+    return next;
+  }
+
+  if (next.board[from.row][from.col] === next.board[to.row][to.col]) {
+    next.message = 'Эти тайлы одинаковые — такой swap не нужен.';
+    return next;
+  }
+
+  const rng = createRng(`${next.seed}-player-move-${next.randomStep}-${from.row}-${from.col}-${to.row}-${to.col}`);
+  swapInPlace(next.board, from, to);
+  const matches = findMatches(next.board);
+
+  if (matches.length === 0) {
+    swapInPlace(next.board, from, to);
+    next.message = 'Этот swap не создаёт матч 3+. Ход не потрачен.';
+    next.log.push(`Проба: (${from.row + 1},${from.col + 1}) ↔ (${to.row + 1},${to.col + 1}) — нет матча, ход не засчитан.`);
+    return next;
+  }
+
+  next.randomStep += 1;
+  next.state.turn += 1;
+  next.log.push(`Ход игрока ${next.state.turn}: (${from.row + 1},${from.col + 1}) ↔ (${to.row + 1},${to.col + 1}). Найдено групп: ${matches.length}.`);
+
+  return finishManualTurn(config, next, rng);
+}
+
+export function togglePlayerSelection(config, battle, cell) {
+  if (!battle || battle.status !== 'playing') return battle;
+  const next = cloneBattle(battle);
+
+  if (!next.selected) {
+    next.selected = cell;
+    next.message = 'Теперь выбери соседний тайл для swap.';
+    return next;
+  }
+
+  if (next.selected.row === cell.row && next.selected.col === cell.col) {
+    next.selected = null;
+    next.message = 'Выбор сброшен.';
+    return next;
+  }
+
+  if (!areAdjacent(next.selected, cell)) {
+    next.selected = cell;
+    next.message = 'Выбран новый тайл. Теперь выбери соседний.';
+    return next;
+  }
+
+  return playPlayerMove(config, next, next.selected, cell);
+}
+
+export function reshufflePlayerBattle(config, battle) {
+  if (!battle || battle.status !== 'playing') return battle;
+  const next = cloneBattle(battle);
+  const rng = createRng(`${next.seed}-manual-reshuffle-${next.randomStep}`);
+  next.board = reshuffleBoard(config, rng);
+  next.selected = null;
+  next.randomStep += 1;
+  next.reshuffles += 1;
+  next.message = 'Поле перемешано без траты хода.';
+  next.log.push(`Ручное перемешивание поля. Всего перемешиваний: ${next.reshuffles}.`);
+  return next;
+}
+
+export function getPlayerHint(config, battle) {
+  if (!battle || battle.status !== 'playing') return null;
+  const rng = createRng(`${battle.seed}-hint-${battle.state.turn}-${battle.randomStep}`);
+  return chooseMove(battle.board, config, battle.state, rng);
+}
+
 export function runAttempts(config, options = {}) {
   const attempts = clamp(Math.round(Number(options.attempts) || 100), 1, 5000);
   const maxTurns = Math.max(1, Number(options.maxTurns) || 90);

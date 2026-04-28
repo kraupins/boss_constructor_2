@@ -7,8 +7,12 @@ import {
   TILES,
   calculateConfig,
   createDefaultForm,
+  createPlayerBattle,
+  getPlayerHint,
+  reshufflePlayerBattle,
   round,
-  runAttempts
+  runAttempts,
+  togglePlayerSelection
 } from './simulator.js';
 
 const numberInputProps = {
@@ -20,6 +24,7 @@ const TABS = [
   { id: 'builder', label: 'Конструктор' },
   { id: 'stats', label: 'Статы' },
   { id: 'simulation', label: 'Симуляция' },
+  { id: 'play', label: 'Трай пользователя' },
   { id: 'summary', label: 'Итог' },
   { id: 'formulas', label: 'Формулы' }
 ];
@@ -728,6 +733,199 @@ function buildTextReport(config, simulation) {
   return lines.join('\n');
 }
 
+
+function percent(current, max) {
+  if (!max) return 0;
+  return Math.max(0, Math.min(100, (current / max) * 100));
+}
+
+function BattleMeter({ label, value, max, tone = 'player', detail }) {
+  const width = percent(value, max);
+  return (
+    <div className={`battle-meter ${tone}`}>
+      <div className="battle-meter-top">
+        <span>{label}</span>
+        <strong>{round(value)} / {max}</strong>
+      </div>
+      <div className="battle-meter-track">
+        <div className="battle-meter-fill" style={{ width: `${width}%` }} />
+      </div>
+      {detail ? <small>{detail}</small> : null}
+    </div>
+  );
+}
+
+function PlayTile({ tileId, selected, hinted, onClick }) {
+  const tile = TILES[tileId];
+  return (
+    <button
+      type="button"
+      className={`play-cell ${selected ? 'selected' : ''} ${hinted ? 'hinted' : ''}`}
+      onClick={onClick}
+      title={tile.label}
+      style={{ '--tile-bg': tile.color, '--tile-text': tile.textColor }}
+    >
+      <span>{tile.short}</span>
+    </button>
+  );
+}
+
+function PlayBoard({ battle, hintMove, onCellClick }) {
+  if (!battle) {
+    return (
+      <div className="play-board-placeholder">
+        <strong>Поле ещё не создано</strong>
+        <span>Нажми «Новый трай», чтобы начать ручной бой по текущим формулам.</span>
+      </div>
+    );
+  }
+
+  const isSelected = (row, col) => battle.selected?.row === row && battle.selected?.col === col;
+  const isHinted = (row, col) => {
+    if (!hintMove) return false;
+    return (hintMove.from.row === row && hintMove.from.col === col) || (hintMove.to.row === row && hintMove.to.col === col);
+  };
+
+  return (
+    <div className="play-board">
+      {battle.board.flatMap((row, rowIndex) =>
+        row.map((tileId, colIndex) => (
+          <PlayTile
+            key={`${rowIndex}-${colIndex}`}
+            tileId={tileId}
+            selected={isSelected(rowIndex, colIndex)}
+            hinted={isHinted(rowIndex, colIndex)}
+            onClick={() => onCellClick({ row: rowIndex, col: colIndex })}
+          />
+        ))
+      )}
+    </div>
+  );
+}
+
+function TileLegend({ config }) {
+  const rows = [
+    ['wood', `${config.swordDamage.wood} урона`],
+    ['iron', `${config.swordDamage.iron} урона`],
+    ['gold', `${config.swordDamage.gold} урона`],
+    ['diamond', `${config.swordDamage.diamond} урона`],
+    ['clay', `${config.clayDamage} чистого`],
+    ['shield', `+${config.shieldPerBall}% защиты`],
+    ['bedrock', `-${config.bedrockBreakPerBall}% брони`]
+  ];
+
+  return (
+    <div className="play-legend">
+      {rows.map(([tileId, value]) => (
+        <div className="legend-item" key={tileId}>
+          <TileBadge tileId={tileId} />
+          <div>
+            <strong>{TILES[tileId].label}</strong>
+            <span>{value}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function UserTryTab({ config, battle, hintMove, onStart, onCellClick, onHint, onClearHint, onReshuffle }) {
+  const state = battle?.state;
+  const playerArmorNow = state
+    ? Math.min(config.playerArmor + config.defenseBonus + state.diamondShield, config.battleArmorCap)
+    : Math.min(config.playerArmor + config.defenseBonus, config.battleArmorCap);
+  const bossArmorNow = state ? Math.max(0, config.bossArmor - state.armorBreak) : config.bossArmor;
+
+  const resultTone = battle?.status === 'win' ? 'success' : battle?.status === 'lose' ? 'danger' : 'info';
+  const resultLabel = battle?.status === 'win' ? 'Победа' : battle?.status === 'lose' ? 'Поражение' : 'В процессе';
+
+  return (
+    <div className="user-try-layout">
+      <section className="panel play-hero-card boss-side">
+        <p className="eyebrow small">босс</p>
+        <h2>{config.bossName}</h2>
+        <p className="muted">{config.bossType.label} / {config.difficulty.label}</p>
+        <div className="boss-avatar">♛</div>
+        <BattleMeter
+          label="HP босса"
+          value={state ? state.bossHp : config.bossMaxHp}
+          max={config.bossMaxHp}
+          tone="boss"
+          detail={`Броня сейчас: ${round(bossArmorNow, 2)}%`}
+        />
+        <div className="mini-stat-grid">
+          <span>Атака: <b>{config.attackRawDamage}</b></span>
+          <span>До атаки: <b>{state ? state.attackCounter : config.attackInterval}</b></span>
+          <span>Реген: <b>{round(config.regenPercent, 2)}%</b></span>
+          <span>До регена: <b>{state ? state.regenCounter : config.regenInterval}</b></span>
+        </div>
+      </section>
+
+      <section className="panel play-main-card">
+        <div className="panel-title-row top-align">
+          <div>
+            <SectionTitle
+              eyebrow="ручной тест"
+              title="Сыграй матч-3 против текущего босса"
+              text="Кликай по тайлу, потом по соседнему. Если swap создаёт матч 3+, ход применяется, считаются каскады, броня, атака и реген босса."
+            />
+            <div className={`try-status ${resultTone}`}>{battle ? `${resultLabel}: ${battle.message}` : 'Нажми «Новый трай», чтобы создать поле.'}</div>
+          </div>
+          <div className="actions-row wrap">
+            <button className="secondary-button" onClick={onHint} disabled={!battle || battle.status !== 'playing'}>Подсказать ход</button>
+            <button className="secondary-button" onClick={onClearHint} disabled={!hintMove}>Скрыть подсказку</button>
+            <button className="secondary-button" onClick={onReshuffle} disabled={!battle || battle.status !== 'playing'}>Перемешать</button>
+            <button className="primary-button" onClick={onStart}>{battle ? 'Новый трай' : 'Начать трай'}</button>
+          </div>
+        </div>
+
+        <div className="play-center">
+          <PlayBoard battle={battle} hintMove={hintMove} onCellClick={onCellClick} />
+        </div>
+
+        <div className="play-rules-card">
+          <strong>Правила текущего трая</strong>
+          <span>Матч 4/5/6+ даёт множитель. Алмазный шар копит защиту до атаки босса. Бедрок шар режет броню босса до следующего урона мечами. Глиняный шар бьёт чистым уроном.</span>
+        </div>
+      </section>
+
+      <section className="panel play-hero-card player-side">
+        <p className="eyebrow small">игрок</p>
+        <h2>Персонаж</h2>
+        <p className="muted">Тестовый герой из текущих настроек</p>
+        <div className="player-avatar">◆</div>
+        <BattleMeter
+          label="HP игрока"
+          value={state ? state.playerHp : config.playerBattleHp}
+          max={config.playerBattleHp}
+          tone="player"
+          detail={`Защита сейчас: ${round(playerArmorNow, 2)}%`}
+        />
+        <div className="mini-stat-grid">
+          <span>Ход: <b>{state ? state.turn : 0}</b></span>
+          <span>Сила: <b>+{config.strengthBonus}%</b></span>
+          <span>Щит: <b>{state ? round(state.diamondShield, 2) : 0}%</b></span>
+          <span>Срез брони: <b>{state ? round(state.armorBreak, 2) : 0}%</b></span>
+        </div>
+      </section>
+
+      <section className="panel play-info-card">
+        <SectionTitle eyebrow="тайлы" title="Что делает каждый тайл" />
+        <TileLegend config={config} />
+      </section>
+
+      <section className="panel play-log-card">
+        <SectionTitle eyebrow="лог" title="История ручного боя" text="Последние события сверху вниз: swap, матчи, кубики брони, урон, реген и атаки босса." />
+        <div className="log play-log">
+          {(battle?.log ?? ['Трай ещё не начат.']).slice(-120).map((line, index) => (
+            <div key={`${index}-${line}`}>{line}</div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function SummaryTab({ config, simulation, copyStatus, onCopy }) {
   const payload = buildExportPayload(config, simulation);
   const report = buildTextReport(config, simulation);
@@ -826,6 +1024,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('builder');
   const [runIndex, setRunIndex] = useState(0);
   const [copyStatus, setCopyStatus] = useState('');
+  const [playerBattle, setPlayerBattle] = useState(null);
+  const [playerHint, setPlayerHint] = useState(null);
   const config = useMemo(() => calculateConfig(form), [form]);
   const autoConfig = useMemo(() => calculateConfig({
     ...form,
@@ -859,6 +1059,32 @@ export default function App() {
     setForm((current) => ({ ...current, weights: { ...DEFAULT_WEIGHTS } }));
   };
 
+  const startPlayerTry = () => {
+    const freshConfig = calculateConfig(form);
+    setPlayerBattle(createPlayerBattle(freshConfig, { seed: `${form.seed || 'mergecraft'}-player-${Date.now()}` }));
+    setPlayerHint(null);
+    setActiveTab('play');
+  };
+
+  const clickPlayerCell = (cell) => {
+    setPlayerBattle((current) => {
+      if (!current) return current;
+      const next = togglePlayerSelection(config, current, cell);
+      return next;
+    });
+    setPlayerHint(null);
+  };
+
+  const showPlayerHint = () => {
+    if (!playerBattle) return;
+    setPlayerHint(getPlayerHint(config, playerBattle));
+  };
+
+  const reshufflePlayer = () => {
+    setPlayerBattle((current) => reshufflePlayerBattle(config, current));
+    setPlayerHint(null);
+  };
+
   const copyText = async (text, message) => {
     try {
       if (navigator.clipboard?.writeText) {
@@ -889,6 +1115,7 @@ export default function App() {
         </div>
         <div className="hero-actions">
           <span className={`status-pill ${status.tone}`}>{status.label}</span>
+          <button className="secondary-button" onClick={startPlayerTry}>Сыграть трай</button>
           <button className="primary-button" onClick={simulate}>Запустить симуляцию</button>
         </div>
       </header>
@@ -923,6 +1150,19 @@ export default function App() {
 
         {activeTab === 'simulation' ? (
           <SimulationTab config={config} simulation={simulation} onSimulate={simulate} runIndex={runIndex} />
+        ) : null}
+
+        {activeTab === 'play' ? (
+          <UserTryTab
+            config={config}
+            battle={playerBattle}
+            hintMove={playerHint}
+            onStart={startPlayerTry}
+            onCellClick={clickPlayerCell}
+            onHint={showPlayerHint}
+            onClearHint={() => setPlayerHint(null)}
+            onReshuffle={reshufflePlayer}
+          />
         ) : null}
 
         {activeTab === 'summary' ? (
