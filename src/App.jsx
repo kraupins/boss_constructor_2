@@ -1,0 +1,682 @@
+import React, { useMemo, useState } from 'react';
+import {
+  BOSS_TYPES,
+  DIFFICULTIES,
+  DEFAULT_WEIGHTS,
+  MATCH_MULTIPLIERS,
+  TILES,
+  calculateConfig,
+  createDefaultForm,
+  round,
+  runAttempts
+} from './simulator.js';
+
+const numberInputProps = {
+  type: 'number',
+  step: 'any'
+};
+
+const TABS = [
+  { id: 'builder', label: 'Конструктор' },
+  { id: 'stats', label: 'Статы' },
+  { id: 'simulation', label: 'Симуляция' },
+  { id: 'formulas', label: 'Формулы' }
+];
+
+function updateNestedWeight(form, tileId, value) {
+  return {
+    ...form,
+    weights: {
+      ...form.weights,
+      [tileId]: value
+    }
+  };
+}
+
+function Field({ label, hint, children }) {
+  return (
+    <label className="field">
+      <span className="field-label">{label}</span>
+      {children}
+      {hint ? <span className="field-hint">{hint}</span> : null}
+    </label>
+  );
+}
+
+function StatCard({ label, value, hint, tone = 'default' }) {
+  return (
+    <div className={`stat-card tone-${tone}`}>
+      <div className="stat-label">{label}</div>
+      <div className="stat-value">{value}</div>
+      {hint ? <div className="stat-hint">{hint}</div> : null}
+    </div>
+  );
+}
+
+function SectionTitle({ eyebrow, title, text }) {
+  return (
+    <div className="section-title">
+      {eyebrow ? <p className="eyebrow small">{eyebrow}</p> : null}
+      <h2>{title}</h2>
+      {text ? <p className="muted section-text">{text}</p> : null}
+    </div>
+  );
+}
+
+function TileBadge({ tileId }) {
+  const tile = TILES[tileId];
+  return (
+    <span
+      className="tile-badge"
+      style={{ background: tile.color, color: tile.textColor }}
+      title={tile.label}
+    >
+      {tile.short}
+    </span>
+  );
+}
+
+function BoardView({ board }) {
+  if (!board) return null;
+  return (
+    <div className="board">
+      {board.flatMap((row, rowIndex) =>
+        row.map((tileId, colIndex) => (
+          <div className="board-cell" key={`${rowIndex}-${colIndex}`}>
+            <TileBadge tileId={tileId} />
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+function Table({ rows }) {
+  return (
+    <table className="table">
+      <tbody>
+        {rows.map(([name, value, hint]) => (
+          <tr key={name}>
+            <th>{name}</th>
+            <td>
+              <div>{value}</div>
+              {hint ? <small>{hint}</small> : null}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function TileTable({ config }) {
+  const rows = [
+    ['wood', `${config.swordDamage.wood} урона за тайл`, 'Базовый частый урон'],
+    ['iron', `${config.swordDamage.iron} урона за тайл`, 'Средний урон'],
+    ['gold', `${config.swordDamage.gold} урона за тайл`, 'Высокий урон'],
+    ['diamond', `${config.swordDamage.diamond} урона за тайл`, 'Самый сильный меч'],
+    ['clay', `${config.clayDamage} чистого урона за тайл`, 'Игнорирует броню босса'],
+    ['shield', `+${config.shieldPerBall}% защиты за тайл`, 'Копится до атаки босса'],
+    ['bedrock', `-${config.bedrockBreakPerBall}% брони босса за тайл`, 'Копится до урона мечами']
+  ];
+
+  return (
+    <table className="table tile-table">
+      <thead>
+        <tr>
+          <th>Тайл</th>
+          <th>Расчётный эффект</th>
+          <th>Вес спавна</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map(([tileId, effect, hint]) => (
+          <tr key={tileId}>
+            <td>
+              <TileBadge tileId={tileId} /> {TILES[tileId].label}
+            </td>
+            <td>
+              <div>{effect}</div>
+              <small>{hint}</small>
+            </td>
+            <td>{config.weights[tileId]}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function FormulaList({ formulas }) {
+  return (
+    <div className="formula-list">
+      {formulas.map((formula) => (
+        <code key={formula}>{formula}</code>
+      ))}
+    </div>
+  );
+}
+
+function getBalanceStatus(simulation) {
+  if (!simulation) return { label: 'Нет данных', tone: 'default', text: 'Запусти симуляцию, чтобы оценить баланс.' };
+  if (simulation.winRate === 0) return { label: 'Не проходится', tone: 'danger', text: 'Автобой ни разу не победил. Нужно ослабить босса или усилить игрока.' };
+  if (simulation.winRate < 25) return { label: 'Очень сложно', tone: 'warning', text: 'Победы редкие. Подходит для хардкора, но не для обычного боя.' };
+  if (simulation.winRate < 55) return { label: 'Сложно', tone: 'warning', text: 'Бой напряжённый. Хорошо для сложного босса.' };
+  if (simulation.winRate <= 85) return { label: 'Нормально', tone: 'success', text: 'Баланс выглядит рабочим: победы есть, но не гарантированы.' };
+  return { label: 'Слишком легко', tone: 'info', text: 'Автобой побеждает слишком часто. Можно усилить босса.' };
+}
+
+function buildBalanceAdvice(config, simulation) {
+  if (!simulation) {
+    return [
+      {
+        title: 'Сначала запусти симуляцию',
+        text: 'После прогона я покажу точечные правки: HP, броня, урон босса, реген, веса тайлов или параметры игрока.',
+        impact: 'ожидание данных'
+      }
+    ];
+  }
+
+  const advice = [];
+  const winRate = simulation.winRate;
+  const best = simulation.bestResult;
+  const firstWin = simulation.firstWinResult;
+  const avgTurns = Number(simulation.avgTurns) || 0;
+  const targetTurns = config.targetTurns;
+
+  if (winRate === 0) {
+    const bossHpLeft = best ? Math.max(0, best.finalBossHp) : 0;
+    const bossLeftPercent = config.bossMaxHp > 0 ? round((bossHpLeft / config.bossMaxHp) * 100, 1) : 0;
+
+    if (bossLeftPercent > 35) {
+      advice.push({
+        title: 'Сильно завышено HP босса',
+        text: `В лучшем забеге у босса осталось примерно ${bossLeftPercent}% HP. Снизь HP босса на 20–30% или увеличь урон мечей через меньшую целевую длину боя.`,
+        impact: `BossHP: ${config.bossMaxHp} → ${Math.round(config.bossMaxHp * 0.75)}`
+      });
+    } else {
+      advice.push({
+        title: 'Босс почти проходится, но не хватает чуть-чуть урона',
+        text: `В лучшем забеге у босса осталось ${bossHpLeft} HP. Снизь HP на 8–12% или дай игроку +5% силы.`,
+        impact: `BossHP: ${config.bossMaxHp} → ${Math.round(config.bossMaxHp * 0.9)}`
+      });
+    }
+
+    if (config.bossArmor >= 35) {
+      advice.push({
+        title: 'Слишком высокая броня босса',
+        text: 'При броне 35%+ автобой часто теряет много урона на блоках. Уменьши броню на 5–10% или увеличь вес бедрок-шара.',
+        impact: `Броня босса: ${config.bossArmor}% → ${Math.max(0, config.bossArmor - 8)}%`
+      });
+    }
+
+    if (config.regenPercent >= 5 && config.regenInterval <= 5) {
+      advice.push({
+        title: 'Реген слишком давит',
+        text: 'Босс часто лечится и отматывает прогресс боя. Увеличь интервал регена на 1 ход или снизь процент лечения.',
+        impact: `Реген: ${config.regenPercent}% / ${config.regenInterval} х. → ${round(config.regenPercent * 0.75, 2)}% / ${config.regenInterval + 1} х.`
+      });
+    }
+
+    if (best?.lose) {
+      advice.push({
+        title: 'Игрок умирает раньше, чем успевает добить босса',
+        text: 'Уменьши урон босса, увеличь интервал атаки на 1 ход или дай игроку больше HP/защиты.',
+        impact: `Атака босса: ${config.attackRawDamage} → ${Math.round(config.attackRawDamage * 0.85)}`
+      });
+    }
+  } else if (winRate < 45) {
+    advice.push({
+      title: 'Победы есть, но редкие',
+      text: 'Для среднего уровня лучше поднять win rate примерно до 55–75%. Самый мягкий способ — чуть снизить HP босса или поднять вес мечей.',
+      impact: `BossHP: ${config.bossMaxHp} → ${Math.round(config.bossMaxHp * 0.92)}`
+    });
+
+    if (avgTurns > targetTurns * 1.25) {
+      advice.push({
+        title: 'Бой слишком длинный',
+        text: `Средняя длина победы ${avgTurns} ходов при цели ${targetTurns}. Уменьши целевую длину боя или HP босса.`,
+        impact: `TargetTurns: ${targetTurns} → ${Math.max(8, Math.round(targetTurns * 0.85))}`
+      });
+    }
+  } else if (winRate > 85) {
+    advice.push({
+      title: 'Босс слишком лёгкий',
+      text: 'Автобой побеждает слишком стабильно. Усиль босса через HP, броню или урон атаки.',
+      impact: `BossHP: ${config.bossMaxHp} → ${Math.round(config.bossMaxHp * 1.15)}`
+    });
+
+    if (firstWin && firstWin.finalPlayerHp > config.playerBattleHp * 0.55) {
+      advice.push({
+        title: 'Игрок заканчивает бой с большим запасом HP',
+        text: 'Подними урон босса на 10–15% или сократи интервал атаки, если хочешь больше напряжения.',
+        impact: `Атака босса: ${config.attackRawDamage} → ${Math.round(config.attackRawDamage * 1.12)}`
+      });
+    }
+  } else {
+    advice.push({
+      title: 'Баланс выглядит рабочим',
+      text: 'Можно оставить текущие значения. Для точной настройки смотри среднюю длину боя и остаток HP игрока при победе.',
+      impact: 'правки не обязательны'
+    });
+  }
+
+  if (simulation.timeouts > simulation.losses && simulation.timeouts > simulation.wins * 0.5) {
+    advice.push({
+      title: 'Много таймаутов',
+      text: 'Бой часто упирается в лимит ходов. Увеличь лимит ходов, снизь HP босса или уменьши реген.',
+      impact: `MaxTurns: попробуй ${Math.round(config.targetTurns * 4)}`
+    });
+  }
+
+  if (config.attackInterval <= 3 && config.attackRawDamage > config.playerBattleHp * 0.22) {
+    advice.push({
+      title: 'Атака босса может быть слишком резкой',
+      text: 'Босс бьёт часто и больно. Это нормально для агрессивного босса, но для обычного может быть душно.',
+      impact: `Интервал атаки: ${config.attackInterval} → ${config.attackInterval + 1}`
+    });
+  }
+
+  if (advice.length === 0) {
+    advice.push({
+      title: 'Нет критичных проблем',
+      text: 'Симуляция не нашла очевидных перекосов. Можно дальше тестировать вручную.',
+      impact: 'без изменений'
+    });
+  }
+
+  return advice.slice(0, 5);
+}
+
+function AdvicePanel({ config, simulation }) {
+  const status = getBalanceStatus(simulation);
+  const advice = buildBalanceAdvice(config, simulation);
+
+  return (
+    <section className="panel advice-panel">
+      <div className="panel-title-row top-align">
+        <div>
+          <SectionTitle
+            eyebrow="помощник баланса"
+            title="Точечные рекомендации"
+            text="Появляются после симуляции и подсказывают, что именно поменять."
+          />
+        </div>
+        <span className={`status-pill ${status.tone}`}>{status.label}</span>
+      </div>
+      <p className="status-text">{status.text}</p>
+      <div className="advice-list">
+        {advice.map((item) => (
+          <div className="advice-item" key={item.title}>
+            <strong>{item.title}</strong>
+            <p>{item.text}</p>
+            <span>{item.impact}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function SimulationResult({ result }) {
+  if (!result) {
+    return <div className="empty-box">Нажми «Запустить симуляцию», чтобы прогнать автобой.</div>;
+  }
+
+  const selectedLog = result.firstWinResult?.log ?? result.bestResult?.log ?? [];
+  const selectedBoard = result.firstWinResult?.finalBoard ?? result.bestResult?.finalBoard;
+
+  return (
+    <div className="simulation-result">
+      <div className="stat-grid four">
+        <StatCard label="Попыток" value={result.attempts} />
+        <StatCard label="Побед" value={`${result.wins} / ${result.attempts}`} hint={`${result.winRate}%`} tone={result.winRate === 0 ? 'danger' : result.winRate < 45 ? 'warning' : 'success'} />
+        <StatCard
+          label="Первая победа"
+          value={result.firstWinAttempt ? `#${result.firstWinAttempt}` : 'Нет'}
+          hint={result.firstWinAttempt ? 'на этой попытке автобой победил впервые' : 'баланс слишком жёсткий или мало попыток'}
+        />
+        <StatCard label="Средняя длина" value={`${result.avgTurns} ходов`} />
+      </div>
+
+      <div className="stat-grid three compact">
+        <StatCard label="Поражений" value={result.losses} />
+        <StatCard label="Таймаутов" value={result.timeouts} />
+        <StatCard label="Среднее HP игрока при победе" value={result.avgPlayerHpOnWin} />
+      </div>
+
+      <div className="split">
+        <section className="panel small-panel">
+          <h3>Финальное поле выбранного забега</h3>
+          <BoardView board={selectedBoard} />
+        </section>
+        <section className="panel log-panel">
+          <h3>Лог выбранного забега</h3>
+          <div className="log">
+            {selectedLog.slice(-90).map((line, index) => (
+              <div key={`${index}-${line}`}>{line}</div>
+            ))}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function BuilderTab({ form, setForm, setValue, resetWeights }) {
+  return (
+    <div className="tab-grid">
+      <section className="panel">
+        <SectionTitle eyebrow="шаг 1" title="Босс" text="Основные входные данные. Пустые поля считаются автоматически от типа босса." />
+        <div className="fields-grid two">
+          <Field label="Название босса">
+            <input value={form.bossName} onChange={(e) => setValue('bossName', e.target.value)} />
+          </Field>
+          <Field label="Базовое HP босса">
+            <input {...numberInputProps} value={form.bossHp} onChange={(e) => setValue('bossHp', e.target.value)} />
+          </Field>
+          <Field label="Тип босса">
+            <select value={form.bossType} onChange={(e) => setValue('bossType', e.target.value)}>
+              {Object.values(BOSS_TYPES).map((type) => (
+                <option value={type.id} key={type.id}>{type.label}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Сложность">
+            <select value={form.difficulty} onChange={(e) => setValue('difficulty', e.target.value)}>
+              {Object.values(DIFFICULTIES).map((difficulty) => (
+                <option value={difficulty.id} key={difficulty.id}>{difficulty.label}</option>
+              ))}
+            </select>
+          </Field>
+        </div>
+      </section>
+
+      <section className="panel">
+        <SectionTitle eyebrow="опционально" title="Тонкая настройка босса" text="Можно оставить auto, если нужен быстрый расчёт по типу босса." />
+        <div className="fields-grid three">
+          <Field label="Броня босса, %" hint="auto = из типа босса">
+            <input {...numberInputProps} placeholder="auto" value={form.bossArmor} onChange={(e) => setValue('bossArmor', e.target.value)} />
+          </Field>
+          <Field label="Атака раз в N ходов" hint="auto">
+            <input {...numberInputProps} placeholder="auto" value={form.attackInterval} onChange={(e) => setValue('attackInterval', e.target.value)} />
+          </Field>
+          <Field label="Части атаки" hint="auto">
+            <input {...numberInputProps} placeholder="auto" value={form.attackChunks} onChange={(e) => setValue('attackChunks', e.target.value)} />
+          </Field>
+          <Field label="Реген раз в N ходов" hint="auto">
+            <input {...numberInputProps} placeholder="auto" value={form.regenInterval} onChange={(e) => setValue('regenInterval', e.target.value)} />
+          </Field>
+          <Field label="Реген, % от MaxHP" hint="auto">
+            <input {...numberInputProps} placeholder="auto" value={form.regenPercent} onChange={(e) => setValue('regenPercent', e.target.value)} />
+          </Field>
+          <Field label="Целевая длина боя" hint="auto = зависит от сложности">
+            <input {...numberInputProps} placeholder="auto" value={form.targetTurns} onChange={(e) => setValue('targetTurns', e.target.value)} />
+          </Field>
+        </div>
+      </section>
+
+      <section className="panel">
+        <SectionTitle eyebrow="шаг 2" title="Игрок" text="Эти значения нужны, чтобы босс считал урон и выживаемость относительно игрока." />
+        <div className="fields-grid three">
+          <Field label="Постоянное HP игрока" hint="100–3000">
+            <input {...numberInputProps} value={form.playerPermanentHp} onChange={(e) => setValue('playerPermanentHp', e.target.value)} />
+          </Field>
+          <Field label="Броня игрока, %" hint="0–50">
+            <input {...numberInputProps} value={form.playerArmor} onChange={(e) => setValue('playerArmor', e.target.value)} />
+          </Field>
+          <Field label="Бонус силы, %" hint="0–25">
+            <input {...numberInputProps} value={form.strengthBonus} onChange={(e) => setValue('strengthBonus', e.target.value)} />
+          </Field>
+          <Field label="Бонус здоровья, %" hint="0–20">
+            <input {...numberInputProps} value={form.healthBonus} onChange={(e) => setValue('healthBonus', e.target.value)} />
+          </Field>
+          <Field label="Бонус защиты, %" hint="0–25">
+            <input {...numberInputProps} value={form.defenseBonus} onChange={(e) => setValue('defenseBonus', e.target.value)} />
+          </Field>
+        </div>
+      </section>
+
+      <section className="panel">
+        <SectionTitle eyebrow="шаг 3" title="Симуляция" text="Повторный запуск использует новый внутренний seed, поэтому можно гонять тесты с теми же настройками." />
+        <div className="fields-grid three">
+          <Field label="Попыток автобоя">
+            <input {...numberInputProps} value={form.attempts} onChange={(e) => setValue('attempts', e.target.value)} />
+          </Field>
+          <Field label="Лимит ходов на забег">
+            <input {...numberInputProps} value={form.maxTurns} onChange={(e) => setValue('maxTurns', e.target.value)} />
+          </Field>
+          <Field label="Seed">
+            <input value={form.seed} onChange={(e) => setValue('seed', e.target.value)} />
+          </Field>
+        </div>
+      </section>
+
+      <section className="panel full-span">
+        <div className="panel-title-row">
+          <SectionTitle eyebrow="спавн" title="Веса тайлов" text="Чем выше число, тем чаще тайл появляется на поле." />
+          <button className="secondary-button" onClick={resetWeights}>Сбросить веса</button>
+        </div>
+        <div className="weight-grid">
+          {Object.values(TILES).map((tile) => (
+            <Field label={tile.label} key={tile.id}>
+              <div className="weight-field">
+                <TileBadge tileId={tile.id} />
+                <input
+                  {...numberInputProps}
+                  value={form.weights[tile.id]}
+                  onChange={(e) => setForm((current) => updateNestedWeight(current, tile.id, e.target.value))}
+                />
+              </div>
+            </Field>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function StatsTab({ config }) {
+  const bossRows = [
+    ['Название', config.bossName],
+    ['Тип', config.bossType.label],
+    ['Сложность', config.difficulty.label],
+    ['Базовое HP', config.baseBossHp],
+    ['HP после сложности', config.bossMaxHp, `множитель сложности ×${config.difficulty.hpMul}`],
+    ['Броня', `${config.bossArmor}%`, 'кап 50%'],
+    ['Цель длины боя', `${config.targetTurns} ходов`]
+  ];
+
+  const attackRows = [
+    ['Урон атаки босса', config.attackRawDamage],
+    ['Интервал атаки', `раз в ${config.attackInterval} хода`],
+    ['Части атаки', config.attackChunks, 'каждая часть отдельно проверяется бронёй игрока'],
+    ['Реген', `раз в ${config.regenInterval} хода по ${round(config.regenPercent, 2)}%`]
+  ];
+
+  const playerRows = [
+    ['Постоянное HP', `${config.playerPermanentHp}/${config.permanentHpCap}`],
+    ['HP в бою', `${config.playerBattleHp}/${config.battleHpCap}`],
+    ['Броня игрока', `${config.playerArmor}%/${config.permanentArmorCap}%`],
+    ['Бонус силы', `${config.strengthBonus}%/${config.strengthCap}%`],
+    ['Бонус здоровья', `${config.healthBonus}%`],
+    ['Бонус защиты', `${config.defenseBonus}%`],
+    ['Кап боевой брони', `${config.battleArmorCap}%`]
+  ];
+
+  return (
+    <div className="tab-grid">
+      <section className="panel">
+        <SectionTitle eyebrow="босс" title="Основные статы" />
+        <Table rows={bossRows} />
+      </section>
+      <section className="panel">
+        <SectionTitle eyebrow="босс" title="Атака и реген" />
+        <Table rows={attackRows} />
+      </section>
+      <section className="panel">
+        <SectionTitle eyebrow="игрок" title="Статы игрока" />
+        <Table rows={playerRows} />
+      </section>
+      <section className="panel">
+        <SectionTitle eyebrow="тайлы" title="Мечи и шары" />
+        <TileTable config={config} />
+      </section>
+      <section className="panel full-span">
+        <SectionTitle eyebrow="матчи" title="Множители совпадений" />
+        <div className="multiplier-row">
+          {MATCH_MULTIPLIERS.map((item) => (
+            <div className="multiplier-card" key={item.min}>
+              <span>{item.min}+ тайла</span>
+              <strong>×{item.value}</strong>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function SimulationTab({ config, simulation, onSimulate, runIndex }) {
+  return (
+    <div className="tab-grid one">
+      <AdvicePanel config={config} simulation={simulation} />
+      <section className="panel result-panel">
+        <div className="panel-title-row top-align">
+          <div>
+            <SectionTitle
+              eyebrow="автобой"
+              title="Автосимуляция забегов"
+              text="Автобой проверяет доступные swap-ы, оценивает пользу хода и выбирает лучший с небольшим рандомом."
+            />
+            <p className="muted">Запуск №{runIndex}. Повторный запуск оставляет настройки теми же, но делает новый прогон.</p>
+          </div>
+          <div className="actions-row">
+            <button className="secondary-button" onClick={onSimulate}>Перезапустить</button>
+            <button className="primary-button" onClick={onSimulate}>Запустить симуляцию</button>
+          </div>
+        </div>
+        <SimulationResult result={simulation} />
+      </section>
+    </div>
+  );
+}
+
+function FormulasTab({ config }) {
+  return (
+    <div className="tab-grid one">
+      <section className="panel">
+        <SectionTitle
+          eyebrow="расчёт"
+          title="Формулы этого босса"
+          text="Здесь собраны основные правила, по которым конструктор получил итоговые значения."
+        />
+        <FormulaList formulas={config.formulas} />
+      </section>
+      <section className="panel">
+        <SectionTitle eyebrow="подсказка" title="Как читать расчёт" />
+        <div className="info-grid">
+          <div>
+            <strong>Броня</strong>
+            <p>Не режет урон напрямую в бою, а даёт шанс заблокировать отдельный удар или часть атаки.</p>
+          </div>
+          <div>
+            <strong>Целевая длина боя</strong>
+            <p>Чем меньше это число, тем больше урон мечей. Чем больше — тем дольше бой.</p>
+          </div>
+          <div>
+            <strong>Алмазный шар</strong>
+            <p>Даёт временную защиту игроку до следующей атаки босса.</p>
+          </div>
+          <div>
+            <strong>Бедрок шар</strong>
+            <p>Снижает броню босса до следующего урона мечами.</p>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+export default function App() {
+  const [form, setForm] = useState(createDefaultForm);
+  const [simulation, setSimulation] = useState(null);
+  const [activeTab, setActiveTab] = useState('builder');
+  const [runIndex, setRunIndex] = useState(0);
+  const config = useMemo(() => calculateConfig(form), [form]);
+  const status = getBalanceStatus(simulation);
+
+  const setValue = (key, value) => {
+    setForm((current) => ({ ...current, [key]: value }));
+  };
+
+  const simulate = () => {
+    const nextRunIndex = runIndex + 1;
+    const freshConfig = calculateConfig(form);
+    const result = runAttempts(freshConfig, {
+      attempts: form.attempts,
+      maxTurns: form.maxTurns,
+      seed: `${form.seed || 'mergecraft'}-run-${nextRunIndex}`
+    });
+    setRunIndex(nextRunIndex);
+    setSimulation(result);
+    setActiveTab('simulation');
+  };
+
+  const resetWeights = () => {
+    setForm((current) => ({ ...current, weights: { ...DEFAULT_WEIGHTS } }));
+  };
+
+  return (
+    <main className="app">
+      <header className="hero">
+        <div>
+          <p className="eyebrow">MergeCraft / Boss Constructor</p>
+          <h1>Конструктор боссов для 3-в-ряд боя</h1>
+          <p className="hero-text">
+            Вводишь босса и сложность — получаешь расчёт статов, формулы, симуляцию забегов и точечные советы по балансу.
+          </p>
+        </div>
+        <div className="hero-actions">
+          <span className={`status-pill ${status.tone}`}>{status.label}</span>
+          <button className="primary-button" onClick={simulate}>Запустить симуляцию</button>
+        </div>
+      </header>
+
+      <section className="summary-strip">
+        <StatCard label="HP босса" value={config.bossMaxHp} hint={`База: ${config.baseBossHp}`} />
+        <StatCard label="Броня босса" value={`${config.bossArmor}%`} hint="кап 50%" />
+        <StatCard label="Атака босса" value={config.attackRawDamage} hint={`раз в ${config.attackInterval} хода`} />
+        <StatCard label="HP игрока" value={config.playerBattleHp} hint={`кап ${config.battleHpCap}`} />
+        <StatCard label="Win rate" value={simulation ? `${simulation.winRate}%` : '—'} hint={simulation ? `${simulation.wins}/${simulation.attempts}` : 'нет симуляции'} tone={status.tone} />
+      </section>
+
+      <nav className="tabs">
+        {TABS.map((tab) => (
+          <button
+            type="button"
+            key={tab.id}
+            className={activeTab === tab.id ? 'active' : ''}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
+
+      <section className="content single">
+        {activeTab === 'builder' ? (
+          <BuilderTab form={form} setForm={setForm} setValue={setValue} resetWeights={resetWeights} />
+        ) : null}
+
+        {activeTab === 'stats' ? <StatsTab config={config} /> : null}
+
+        {activeTab === 'simulation' ? (
+          <SimulationTab config={config} simulation={simulation} onSimulate={simulate} runIndex={runIndex} />
+        ) : null}
+
+        {activeTab === 'formulas' ? <FormulasTab config={config} /> : null}
+      </section>
+    </main>
+  );
+}
