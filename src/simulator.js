@@ -985,3 +985,231 @@ export function runAttempts(config, options = {}) {
     results
   };
 }
+
+export const GENERATION_PRESETS = {
+  random: {
+    id: 'random',
+    label: 'Полный рандом',
+    hint: 'Смешивает ранние, средние, поздние и финальные диапазоны.'
+  },
+  early: {
+    id: 'early',
+    label: 'Ранний босс',
+    hint: 'Короткий бой, небольшие цифры, мягкий реген.',
+    hp: [350, 850],
+    playerHp: [250, 700],
+    playerArmor: [5, 16],
+    strength: [0, 6],
+    health: [0, 8],
+    defense: [0, 6],
+    targetTurns: [13, 19],
+    maxTurnsMul: [3.2, 4],
+    armorVariance: [-7, 4],
+    attackVariance: [0, 1],
+    regenVariance: [0, 2],
+    regenPercentMul: [0.55, 0.9]
+  },
+  middle: {
+    id: 'middle',
+    label: 'Средний босс',
+    hint: 'Основной темп игры: бой уже требует защиты и антиброни.',
+    hp: [900, 2400],
+    playerHp: [700, 1500],
+    playerArmor: [12, 28],
+    strength: [3, 12],
+    health: [0, 14],
+    defense: [2, 12],
+    targetTurns: [19, 28],
+    maxTurnsMul: [3.4, 4.2],
+    armorVariance: [-5, 8],
+    attackVariance: [-1, 1],
+    regenVariance: [-1, 1],
+    regenPercentMul: [0.8, 1.15]
+  },
+  late: {
+    id: 'late',
+    label: 'Поздний босс',
+    hint: 'Большие числа, заметная броня и более плотные проверки выживаемости.',
+    hp: [2600, 6200],
+    playerHp: [1500, 2600],
+    playerArmor: [24, 42],
+    strength: [8, 20],
+    health: [5, 20],
+    defense: [6, 18],
+    targetTurns: [26, 38],
+    maxTurnsMul: [3.6, 4.5],
+    armorVariance: [-2, 11],
+    attackVariance: [-1, 0],
+    regenVariance: [-1, 0],
+    regenPercentMul: [0.9, 1.3]
+  },
+  final: {
+    id: 'final',
+    label: 'Финальный босс',
+    hint: 'Длинный опасный бой с сильными параметрами и высоким давлением.',
+    hp: [7000, 13000],
+    playerHp: [2400, 3000],
+    playerArmor: [35, 50],
+    strength: [12, 25],
+    health: [10, 20],
+    defense: [10, 25],
+    targetTurns: [34, 48],
+    maxTurnsMul: [3.8, 4.8],
+    armorVariance: [2, 15],
+    attackVariance: [-1, 0],
+    regenVariance: [-1, 0],
+    regenPercentMul: [1, 1.45]
+  }
+};
+
+const BOSS_NAME_POOLS = {
+  normal: {
+    titles: ['Каменный', 'Мшистый', 'Рунный', 'Глиняный', 'Древний', 'Сумрачный'],
+    nouns: ['Голем', 'Страж', 'Исполин', 'Колосс', 'Титан', 'Хранитель']
+  },
+  tank: {
+    titles: ['Железный', 'Обсидиановый', 'Гранитный', 'Тяжёлый', 'Панцирный', 'Бастионный'],
+    nouns: ['Бастион', 'Бронелом', 'Щитоносец', 'Монолит', 'Крепость', 'Громада']
+  },
+  regenerator: {
+    titles: ['Дикий', 'Корневой', 'Грибной', 'Живой', 'Болотный', 'Алый'],
+    nouns: ['Росток', 'Лесовик', 'Паразит', 'Ткач Жизни', 'Восстановитель', 'Споровик']
+  },
+  aggressive: {
+    titles: ['Пылающий', 'Яростный', 'Быстрый', 'Костяной', 'Грозовой', 'Кровавый'],
+    nouns: ['Берсерк', 'Охотник', 'Разоритель', 'Крушитель', 'Дуэлянт', 'Палач']
+  },
+  final: {
+    titles: ['Пустотный', 'Последний', 'Звёздный', 'Вечный', 'Безмолвный', 'Мировой'],
+    nouns: ['Архонт', 'Владыка', 'Разлом', 'Первозверь', 'Повелитель', 'Конец Мира']
+  }
+};
+
+function randomBetween(rng, min, max, digits = 0) {
+  const value = min + (max - min) * rng();
+  return round(value, digits);
+}
+
+function randomInt(rng, min, max) {
+  return Math.round(randomBetween(rng, min, max, 0));
+}
+
+function pickRandom(rng, list) {
+  return list[Math.floor(rng() * list.length)] ?? list[0];
+}
+
+function pickPreset(presetId, rng) {
+  if (presetId && presetId !== 'random' && GENERATION_PRESETS[presetId]) return GENERATION_PRESETS[presetId];
+  return GENERATION_PRESETS[pickRandom(rng, ['early', 'middle', 'late', 'final'])];
+}
+
+function generatedWeightsForType(bossTypeId, rng) {
+  const weights = { ...DEFAULT_WEIGHTS };
+  const jitter = () => randomInt(rng, -2, 3);
+
+  for (const tileId of Object.keys(weights)) {
+    weights[tileId] = Math.max(5, weights[tileId] + jitter());
+  }
+
+  if (bossTypeId === 'tank') {
+    weights.bedrock += randomInt(rng, 4, 8);
+    weights.clay += randomInt(rng, 1, 4);
+    weights.diamond = Math.max(7, weights.diamond - randomInt(rng, 1, 3));
+  } else if (bossTypeId === 'aggressive') {
+    weights.shield += randomInt(rng, 5, 9);
+    weights.wood += randomInt(rng, 1, 3);
+    weights.bedrock = Math.max(7, weights.bedrock - randomInt(rng, 1, 3));
+  } else if (bossTypeId === 'regenerator') {
+    weights.gold += randomInt(rng, 3, 6);
+    weights.diamond += randomInt(rng, 2, 5);
+    weights.clay = Math.max(8, weights.clay - randomInt(rng, 1, 4));
+  } else if (bossTypeId === 'final') {
+    weights.bedrock += randomInt(rng, 2, 5);
+    weights.shield += randomInt(rng, 2, 5);
+    weights.diamond += randomInt(rng, 1, 4);
+  } else {
+    weights.iron += randomInt(rng, 1, 4);
+    weights.clay += randomInt(rng, 1, 4);
+  }
+
+  return weights;
+}
+
+export function generateRandomBossForm(currentForm = createDefaultForm(), options = {}) {
+  const rng = createRng(options.seed ?? `boss-generator-${Date.now()}`);
+  const preset = pickPreset(options.preset ?? 'random', rng);
+  const bossTypeId = options.bossType && options.bossType !== 'random'
+    ? options.bossType
+    : pickRandom(rng, Object.keys(BOSS_TYPES));
+  const difficultyId = options.difficulty && options.difficulty !== 'random'
+    ? options.difficulty
+    : pickRandom(rng, Object.keys(DIFFICULTIES));
+
+  const bossType = BOSS_TYPES[bossTypeId] ?? BOSS_TYPES.normal;
+  const diff = DIFFICULTIES[difficultyId] ?? DIFFICULTIES.medium;
+  const namePool = BOSS_NAME_POOLS[bossTypeId] ?? BOSS_NAME_POOLS.normal;
+  const bossName = `${pickRandom(rng, namePool.titles)} ${pickRandom(rng, namePool.nouns)}`;
+
+  const bossHp = randomInt(rng, preset.hp[0], preset.hp[1]);
+  const finalArmorTarget = clamp(
+    bossType.armor + randomBetween(rng, preset.armorVariance[0], preset.armorVariance[1], 1),
+    0,
+    50
+  );
+  const manualArmorBeforeDifficulty = clamp(round(finalArmorTarget - diff.armorDelta, 1), 0, 50);
+
+  const finalAttackIntervalTarget = clamp(
+    bossType.attackInterval + randomInt(rng, preset.attackVariance[0], preset.attackVariance[1]),
+    2,
+    8
+  );
+  const manualAttackIntervalBeforeDifficulty = Math.max(2, Math.round(finalAttackIntervalTarget - diff.attackIntervalDelta));
+
+  const finalRegenIntervalTarget = clamp(
+    bossType.regenInterval + randomInt(rng, preset.regenVariance[0], preset.regenVariance[1]),
+    2,
+    10
+  );
+  const manualRegenIntervalBeforeDifficulty = Math.max(2, Math.round(finalRegenIntervalTarget - diff.regenIntervalDelta));
+
+  const finalRegenPercentTarget = clamp(
+    bossType.regenPercent * randomBetween(rng, preset.regenPercentMul[0], preset.regenPercentMul[1], 2),
+    0,
+    12
+  );
+  const manualRegenPercentBeforeDifficulty = clamp(round(finalRegenPercentTarget / Math.max(0.1, diff.regenMul), 2), 0, 12);
+
+  const attackChunks = clamp(
+    bossType.attackChunks + (bossTypeId === 'final' ? randomInt(rng, 0, 2) : randomInt(rng, -1, 1)),
+    3,
+    8
+  );
+
+  const targetTurns = randomInt(rng, preset.targetTurns[0], preset.targetTurns[1]);
+  const maxTurns = Math.round(targetTurns * randomBetween(rng, preset.maxTurnsMul[0], preset.maxTurnsMul[1], 2));
+
+  return {
+    ...currentForm,
+    bossName,
+    bossHp,
+    bossType: bossTypeId,
+    difficulty: difficultyId,
+
+    bossArmor: String(manualArmorBeforeDifficulty),
+    attackInterval: String(manualAttackIntervalBeforeDifficulty),
+    regenInterval: String(manualRegenIntervalBeforeDifficulty),
+    regenPercent: String(manualRegenPercentBeforeDifficulty),
+    attackChunks: String(attackChunks),
+
+    playerPermanentHp: randomInt(rng, preset.playerHp[0], preset.playerHp[1]),
+    playerArmor: randomInt(rng, preset.playerArmor[0], preset.playerArmor[1]),
+    strengthBonus: randomInt(rng, preset.strength[0], preset.strength[1]),
+    healthBonus: randomInt(rng, preset.health[0], preset.health[1]),
+    defenseBonus: randomInt(rng, preset.defense[0], preset.defense[1]),
+
+    targetTurns: String(targetTurns),
+    maxTurns,
+    seed: `${bossName.toLowerCase().replace(/\s+/g, '-')}-${Math.floor(rng() * 100000)}`,
+    weights: generatedWeightsForType(bossTypeId, rng)
+  };
+}

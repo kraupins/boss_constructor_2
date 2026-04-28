@@ -3,11 +3,13 @@ import {
   BOSS_TYPES,
   DIFFICULTIES,
   DEFAULT_WEIGHTS,
+  GENERATION_PRESETS,
   MATCH_MULTIPLIERS,
   TILES,
   calculateConfig,
   createDefaultForm,
   createPlayerBattle,
+  generateRandomBossForm,
   getPlayerHint,
   reshufflePlayerBattle,
   round,
@@ -22,6 +24,7 @@ const numberInputProps = {
 
 const TABS = [
   { id: 'builder', label: 'Конструктор' },
+  { id: 'generator', label: 'Генератор' },
   { id: 'stats', label: 'Статы' },
   { id: 'simulation', label: 'Симуляция' },
   { id: 'play', label: 'Трай пользователя' },
@@ -537,6 +540,118 @@ function BuilderTab({ form, setForm, setValue, resetWeights, autoConfig }) {
   );
 }
 
+function GeneratorTab({ form, generatorOptions, setGeneratorOptions, config, onGenerate, onGenerateAndSimulate, onSimulate, onPlay, generationMessage }) {
+  const preset = GENERATION_PRESETS[generatorOptions.preset] ?? GENERATION_PRESETS.random;
+
+  return (
+    <div className="tab-grid one">
+      <section className="panel generator-hero-panel">
+        <div className="panel-title-row top-align">
+          <div>
+            <SectionTitle
+              eyebrow="генератор"
+              title="Случайный босс за один клик"
+              text="Выбери этап игры и ограничения, нажми генерацию — конструктор заполнит название, тип, сложность, HP, броню, атаку, реген, игрока и веса тайлов. Все поля потом можно вручную поправить."
+            />
+            <div className="generator-hint-box">
+              <strong>{preset.label}</strong>
+              <span>{preset.hint}</span>
+            </div>
+          </div>
+          <div className="actions-row wrap">
+            <button className="secondary-button" onClick={onGenerateAndSimulate}>Сгенерировать и проверить</button>
+            <button className="primary-button large" onClick={onGenerate}>Сгенерировать босса</button>
+          </div>
+        </div>
+
+        {generationMessage ? <div className="copy-status generator-message">{generationMessage}</div> : null}
+
+        <div className="fields-grid three generator-controls">
+          <Field label="Этап босса" hint="Влияет на диапазон HP, игрока, длительность боя и силу давления.">
+            <select
+              value={generatorOptions.preset}
+              onChange={(e) => setGeneratorOptions((current) => ({ ...current, preset: e.target.value }))}
+            >
+              {Object.values(GENERATION_PRESETS).map((item) => (
+                <option value={item.id} key={item.id}>{item.label}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Сложность" hint="Можно оставить случайной или зафиксировать.">
+            <select
+              value={generatorOptions.difficulty}
+              onChange={(e) => setGeneratorOptions((current) => ({ ...current, difficulty: e.target.value }))}
+            >
+              <option value="random">Случайная</option>
+              {Object.values(DIFFICULTIES).map((difficulty) => (
+                <option value={difficulty.id} key={difficulty.id}>{difficulty.label}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Тип босса" hint="Можно оставить случайным или выбрать архетип.">
+            <select
+              value={generatorOptions.bossType}
+              onChange={(e) => setGeneratorOptions((current) => ({ ...current, bossType: e.target.value }))}
+            >
+              <option value="random">Случайный</option>
+              {Object.values(BOSS_TYPES).map((type) => (
+                <option value={type.id} key={type.id}>{type.label}</option>
+              ))}
+            </select>
+          </Field>
+        </div>
+      </section>
+
+      <section className="panel">
+        <SectionTitle eyebrow="текущий результат" title="Сгенерированный босс" text="Это уже итоговые значения с учётом сложности. Их можно проверять автосимуляцией или играть руками." />
+        <div className="generator-result-grid">
+          <StatCard label="Название" value={config.bossName} hint={`${config.bossType.label} / ${config.difficulty.label}`} />
+          <StatCard label="HP / броня" value={`${config.bossMaxHp} / ${config.bossArmor}%`} hint={`базовое HP: ${config.baseBossHp}`} />
+          <StatCard label="Атака" value={config.attackRawDamage} hint={`раз в ${config.attackInterval} хода, частей: ${config.attackChunks}`} />
+          <StatCard label="Реген" value={`${round(config.regenPercent, 2)}%`} hint={`раз в ${config.regenInterval} хода`} />
+          <StatCard label="Цель боя" value={`${config.targetTurns} ходов`} hint={`лимит симуляции: ${form.maxTurns}`} />
+          <StatCard label="Игрок" value={`${config.playerBattleHp} HP`} hint={`броня ${config.playerArmor}%, сила +${config.strengthBonus}%`} />
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-title-row top-align">
+          <SectionTitle eyebrow="быстрые действия" title="Что делать после генерации" text="Лучший цикл: сгенерировать → прогнать симуляцию → посмотреть советы → сыграть руками → скопировать итог." />
+          <div className="actions-row wrap">
+            <button className="secondary-button" onClick={onGenerate}>Сгенерировать другой вариант</button>
+            <button className="secondary-button" onClick={onPlay}>Сыграть трай</button>
+            <button className="primary-button" onClick={onSimulate}>Запустить симуляцию</button>
+          </div>
+        </div>
+        <div className="info-grid generator-tips">
+          <div>
+            <strong>Ранний</strong>
+            <p>Меньше HP и мягкая атака. Хорош для первых глав и обучения.</p>
+          </div>
+          <div>
+            <strong>Средний</strong>
+            <p>Базовый баланс: уже важны шары защиты и снижение брони.</p>
+          </div>
+          <div>
+            <strong>Поздний</strong>
+            <p>Больше броня, реген и длина боя. Требует развитого игрока.</p>
+          </div>
+          <div>
+            <strong>Финальный</strong>
+            <p>Длинный бой с высоким давлением. После генерации обязательно проверять симуляцией.</p>
+          </div>
+        </div>
+      </section>
+
+      <section className="panel">
+        <SectionTitle eyebrow="тайлы" title="Веса и эффекты текущего босса" />
+        <TileTable config={config} />
+      </section>
+    </div>
+  );
+}
+
+
 function StatsTab({ config }) {
   const bossRows = [
     ['Название', config.bossName],
@@ -1024,6 +1139,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('builder');
   const [runIndex, setRunIndex] = useState(0);
   const [copyStatus, setCopyStatus] = useState('');
+  const [generationOptions, setGenerationOptions] = useState({ preset: 'random', difficulty: 'random', bossType: 'random' });
+  const [generationMessage, setGenerationMessage] = useState('');
   const [playerBattle, setPlayerBattle] = useState(null);
   const [playerHint, setPlayerHint] = useState(null);
   const config = useMemo(() => calculateConfig(form), [form]);
@@ -1042,17 +1159,50 @@ export default function App() {
     setForm((current) => ({ ...current, [key]: value }));
   };
 
-  const simulate = () => {
+  const runSimulationForForm = (sourceForm) => {
     const nextRunIndex = runIndex + 1;
-    const freshConfig = calculateConfig(form);
+    const freshConfig = calculateConfig(sourceForm);
     const result = runAttempts(freshConfig, {
-      attempts: form.attempts,
-      maxTurns: form.maxTurns,
-      seed: `${form.seed || 'mergecraft'}-run-${nextRunIndex}`
+      attempts: sourceForm.attempts,
+      maxTurns: sourceForm.maxTurns,
+      seed: `${sourceForm.seed || 'mergecraft'}-run-${nextRunIndex}`
     });
     setRunIndex(nextRunIndex);
     setSimulation(result);
     setActiveTab('simulation');
+    return result;
+  };
+
+  const simulate = () => {
+    runSimulationForForm(form);
+  };
+
+  const generateBoss = () => {
+    const nextForm = generateRandomBossForm(form, {
+      ...generationOptions,
+      seed: `generator-${Date.now()}-${runIndex}`
+    });
+    setForm(nextForm);
+    setSimulation(null);
+    setPlayerBattle(null);
+    setPlayerHint(null);
+    setCopyStatus('');
+    setGenerationMessage(`Сгенерирован: ${nextForm.bossName}. Проверь автобоем или сыграй трай.`);
+    setActiveTab('generator');
+    return nextForm;
+  };
+
+  const generateAndSimulate = () => {
+    const nextForm = generateRandomBossForm(form, {
+      ...generationOptions,
+      seed: `generator-${Date.now()}-${runIndex}`
+    });
+    setForm(nextForm);
+    setPlayerBattle(null);
+    setPlayerHint(null);
+    setCopyStatus('');
+    setGenerationMessage(`Сгенерирован и проверен автобоем: ${nextForm.bossName}.`);
+    runSimulationForForm(nextForm);
   };
 
   const resetWeights = () => {
@@ -1115,6 +1265,7 @@ export default function App() {
         </div>
         <div className="hero-actions">
           <span className={`status-pill ${status.tone}`}>{status.label}</span>
+          <button className="secondary-button" onClick={() => setActiveTab('generator')}>Генератор</button>
           <button className="secondary-button" onClick={startPlayerTry}>Сыграть трай</button>
           <button className="primary-button" onClick={simulate}>Запустить симуляцию</button>
         </div>
@@ -1144,6 +1295,20 @@ export default function App() {
       <section className="content single">
         {activeTab === 'builder' ? (
           <BuilderTab form={form} setForm={setForm} setValue={setValue} resetWeights={resetWeights} autoConfig={autoConfig} />
+        ) : null}
+
+        {activeTab === 'generator' ? (
+          <GeneratorTab
+            form={form}
+            generatorOptions={generationOptions}
+            setGeneratorOptions={setGenerationOptions}
+            config={config}
+            onGenerate={generateBoss}
+            onGenerateAndSimulate={generateAndSimulate}
+            onSimulate={simulate}
+            onPlay={startPlayerTry}
+            generationMessage={generationMessage}
+          />
         ) : null}
 
         {activeTab === 'stats' ? <StatsTab config={config} /> : null}

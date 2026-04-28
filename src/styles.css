@@ -1052,3 +1052,59 @@ button:disabled {
     min-height: auto;
   }
 }
+
+.generator-hero-panel {
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top right, rgba(113, 59, 255, 0.12), transparent 22rem),
+    radial-gradient(circle at bottom left, rgba(59, 99, 255, 0.12), transparent 22rem),
+    rgba(255, 255, 255, 0.94);
+}
+
+.generator-hint-box {
+  display: inline-grid;
+  gap: 4px;
+  max-width: 720px;
+  margin-top: 12px;
+  padding: 14px 16px;
+  border: 1px solid rgba(59, 99, 255, 0.16);
+  border-radius: 18px;
+  background: rgba(238, 243, 255, 0.78);
+  color: #526174;
+  line-height: 1.45;
+}
+
+.generator-hint-box strong {
+  color: #22334a;
+  font-size: 15px;
+}
+
+.generator-controls {
+  margin-top: 20px;
+}
+
+.generator-message {
+  margin-top: 16px;
+}
+
+.generator-result-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.generator-tips div {
+  min-height: 118px;
+}
+
+.primary-button.large,
+.secondary-button.large {
+  padding: 15px 20px;
+  font-size: 15px;
+}
+
+@media (max-width: 1280px) {
+  .generator-result-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
