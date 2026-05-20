@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { getBalanceStatus } from './balanceHints.js';
 import HomeScreen from './components/HomeScreen.jsx';
+import InstructionView from './components/InstructionView.jsx';
 import ManualView from './components/manual/ManualView.jsx';
 import {
   AutoNumberField,
@@ -154,11 +155,15 @@ export default function App() {
           <p className="eyebrow">MergeCraft</p>
           <h1>
             {appMode === 'home' && 'Конструктор боссов'}
+            {appMode === 'instruction' && 'Инструкция'}
             {appMode === 'wizard' && 'Мастер настройки'}
             {appMode === 'manual' && (config.bossName || 'Ручной режим')}
           </h1>
           {appMode === 'home' ? (
-            <p className="hero-text">Мастер для новичков или полный режим — на твой выбор.</p>
+            <p className="hero-text">Мастер, полный режим или подробная инструкция — на твой выбор.</p>
+          ) : null}
+          {appMode === 'instruction' ? (
+            <p className="hero-text">Wiki: формулы, бой, тайлы и инструменты — всё по полочкам.</p>
           ) : null}
         </div>
         <div className="hero-actions">
@@ -183,9 +188,15 @@ export default function App() {
             setAppMode('wizard');
             setWizardScreenIndex(0);
           }}
+          onInstruction={() => setAppMode('instruction')}
         />
       ) : null}
 
+      {appMode === 'instruction' ? (
+        <section className="content single">
+          <InstructionView />
+        </section>
+      ) : (
       <section className="content single">
         {appMode === 'wizard' ? (
           <WizardView
@@ -248,6 +259,7 @@ export default function App() {
           />
         ) : null}
       </section>
+      )}
     </main>
   );
 }

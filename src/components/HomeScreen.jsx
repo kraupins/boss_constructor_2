@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function HomeScreen({ onManual, onWizard }) {
+export default function HomeScreen({ onManual, onWizard, onInstruction }) {
   return (
     <div className="home-screen">
       <section className="home-intro panel compact">
@@ -11,7 +11,7 @@ export default function HomeScreen({ onManual, onWizard }) {
         </p>
       </section>
 
-      <div className="home-cards">
+      <div className="home-cards home-cards-triple">
         <button type="button" className="home-card" onClick={onManual}>
           <span className="home-card-icon">⚙</span>
           <h2>Ручная настройка</h2>
@@ -24,6 +24,13 @@ export default function HomeScreen({ onManual, onWizard }) {
           <h2>Мастер (Wizard)</h2>
           <p>Как настройка на телефоне: одно действие на экран, подсказки справа, без лишних полей.</p>
           <span className="home-card-cta">Начать мастер →</span>
+        </button>
+
+        <button type="button" className="home-card home-card-wiki" onClick={onInstruction}>
+          <span className="home-card-icon">📖</span>
+          <h2>Инструкция</h2>
+          <p>Wiki по инструменту: каждая формула, каждый тайл и каждый шаг боя — простым языком, с примерами.</p>
+          <span className="home-card-cta">Открыть справочник →</span>
         </button>
       </div>
     </div>
