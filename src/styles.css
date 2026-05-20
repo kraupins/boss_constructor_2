@@ -10,9 +10,14 @@
   text-rendering: optimizeLegibility;
 }
 
+html {
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
   margin: 0;
-  min-width: 1080px;
+  overflow-x: hidden;
   background:
     radial-gradient(circle at top left, rgba(86, 133, 255, 0.16), transparent 34rem),
     radial-gradient(circle at top right, rgba(113, 59, 255, 0.1), transparent 30rem),
@@ -612,10 +617,6 @@ select:focus {
 }
 
 @media (max-width: 1280px) {
-  body {
-    min-width: 960px;
-  }
-
   .summary-strip {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -1930,6 +1931,7 @@ button:disabled {
 }
 
 .manual-play-page {
+  width: 100%;
   max-width: 560px;
   margin: 0 auto;
 }
@@ -1983,6 +1985,8 @@ button:disabled {
   color: #b42318;
 }
 
+/* —— Responsive: tablet and below —— */
+
 @media (max-width: 1100px) {
   .home-cards {
     grid-template-columns: 1fr;
@@ -1990,28 +1994,436 @@ button:disabled {
 
   .wizard-shell,
   .manual-shell {
-    grid-template-columns: 1fr;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 0;
   }
 
   .wizard-nav-left,
   .manual-nav-left {
-    position: static;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    order: 0;
+    padding: 12px 14px;
+    border-radius: 16px;
+    box-shadow: 0 4px 20px rgba(29, 44, 76, 0.06);
   }
 
   .wizard-nav-list {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 4px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+
+  .wizard-nav-list li {
+    flex: 0 0 auto;
+  }
+
+  .wizard-nav-item {
+    white-space: nowrap;
+    min-height: 44px;
+  }
+
+  .wizard-center,
+  .manual-center {
+    order: 1;
+    min-height: 0;
+    padding: 20px 18px;
   }
 
   .wizard-aside-right,
   .manual-aside {
     position: static;
+    order: 2;
   }
 
+  .manual-fields,
   .manual-fields.three {
     grid-template-columns: 1fr;
   }
 
   .manual-sim-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .wizard-stepper {
+    display: flex;
+    overflow-x: auto;
+    gap: 8px;
+    grid-template-columns: unset;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .wizard-step {
+    flex: 0 0 auto;
+    min-width: 120px;
+  }
+}
+
+@media (max-width: 900px) {
+  .hero {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+    padding: 18px 16px;
+    border-radius: 22px;
+  }
+
+  .hero-actions {
+    flex-wrap: wrap;
+    justify-content: stretch;
+  }
+
+  .hero-actions .primary-button,
+  .hero-actions .secondary-button {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .summary-strip,
+  .summary-strip.compact-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tab-grid,
+  .fields-grid.two,
+  .fields-grid.three,
+  .weight-grid {
     grid-template-columns: 1fr;
+  }
+
+  .grouped-tabs {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .tabs-group {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .tabs-group-buttons {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .user-try-layout {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "board"
+      "boss"
+      "player"
+      "info"
+      "log";
+  }
+
+  .play-board,
+  .play-board-placeholder {
+    width: 100%;
+    max-width: none;
+    min-height: 0;
+    aspect-ratio: 1 / 1;
+    max-height: min(92vw, 520px);
+    padding: 10px;
+    gap: 6px;
+  }
+
+  .manual-sim-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .manual-tile-weights {
+    grid-template-columns: 1fr;
+  }
+
+  .wizard-tune-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .wizard-preview-stats,
+  .wizard-preview-stats.four {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  h1 {
+    font-size: 22px;
+  }
+
+  .hero.compact-hero,
+  .hero.wizard-topbar,
+  .hero.manual-topbar {
+    padding: 14px 14px;
+    margin-bottom: 10px;
+  }
+
+  .hero-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .hero-actions .primary-button,
+  .hero-actions .secondary-button,
+  .hero-actions .status-pill {
+    width: 100%;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .summary-strip,
+  .summary-strip.compact-strip {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .stat-card {
+    padding: 12px 14px;
+    border-radius: 16px;
+  }
+
+  .stat-value {
+    font-size: 18px;
+  }
+
+  .panel,
+  .stat-card {
+    border-radius: 18px;
+  }
+
+  .panel.compact,
+  .wizard-center,
+  .manual-center {
+    padding: 16px 14px;
+  }
+
+  .home-card {
+    padding: 18px 16px;
+  }
+
+  .wizard-onboard-head h2,
+  .manual-page-head h2 {
+    font-size: 20px;
+  }
+
+  .wizard-onboard {
+    max-width: none;
+  }
+
+  .wizard-choice-card,
+  .wizard-skip-card {
+    padding: 14px;
+  }
+
+  .wizard-actions {
+    flex-direction: column-reverse;
+    gap: 8px;
+  }
+
+  .wizard-actions .primary-button,
+  .wizard-actions .secondary-button,
+  .wizard-actions-stack .primary-button,
+  .wizard-actions-stack .secondary-button,
+  .manual-generator-actions .primary-button,
+  .manual-generator-actions .secondary-button {
+    width: 100%;
+  }
+
+  .manual-play-page {
+    max-width: none;
+  }
+
+  .manual-play-board-wrap {
+    width: 100%;
+    padding: 0 2px;
+  }
+
+  .manual-play-actions {
+    flex-direction: column;
+  }
+
+  .manual-play-actions button {
+    width: 100%;
+  }
+
+  .manual-sim-rate strong {
+    font-size: 28px;
+  }
+
+  .manual-sim-hero {
+    flex-wrap: wrap;
+  }
+
+  .primary-button,
+  .secondary-button {
+    min-height: 44px;
+    padding: 12px 16px;
+  }
+
+  .ghost-button,
+  .wizard-nav-item,
+  .wizard-choice-card,
+  .wizard-skip-card,
+  .manual-accordion-head,
+  .home-card {
+    min-height: 44px;
+  }
+
+  input,
+  select,
+  .wizard-input-large {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .auto-input-row {
+    grid-template-columns: 1fr;
+  }
+
+  .tiny-button {
+    width: 100%;
+    min-height: 40px;
+  }
+
+  .tabs-group-buttons {
+    grid-template-columns: 1fr;
+  }
+
+  .tabs button {
+    min-height: 44px;
+  }
+
+  .play-cell {
+    border-radius: 10px;
+    font-size: clamp(8px, 2.6vw, 13px);
+  }
+
+  .play-cell.selected,
+  .play-cell.hinted {
+    outline-width: 3px;
+    outline-offset: 1px;
+  }
+
+  .board {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    width: 100%;
+    gap: 4px;
+  }
+
+  .board-cell {
+    width: auto;
+    height: auto;
+    aspect-ratio: 1;
+  }
+
+  .generator-result-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .actions-row.wrap {
+    justify-content: stretch;
+  }
+
+  .actions-row.wrap button {
+    flex: 1 1 calc(50% - 5px);
+    min-width: 0;
+  }
+
+  .panel-title-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .kv-list div {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
+  .kv-list dd {
+    text-align: left;
+  }
+}
+
+@media (max-width: 380px) {
+  .app {
+    padding-left: max(10px, env(safe-area-inset-left, 0px));
+    padding-right: max(10px, env(safe-area-inset-right, 0px));
+  }
+
+  .summary-strip,
+  .summary-strip.compact-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .wizard-nav-item {
+    padding: 10px 12px;
+    font-size: 12px;
+  }
+
+  .wizard-nav-dot {
+    width: 20px;
+    height: 20px;
+  }
+
+  .stat-value {
+    font-size: 16px;
+  }
+}
+
+@media (min-width: 1101px) {
+  .wizard-shell,
+  .manual-shell {
+    display: grid;
+    align-items: start;
+  }
+
+  .wizard-shell {
+    grid-template-columns: 200px minmax(0, 1fr) minmax(260px, 300px);
+  }
+
+  .manual-shell {
+    grid-template-columns: 180px minmax(0, 1fr) minmax(240px, 280px);
+  }
+
+  .wizard-nav-list {
+    display: grid;
+    overflow: visible;
+  }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .play-cell:hover,
+  .primary-button:hover,
+  .secondary-button:hover,
+  .home-card:hover,
+  .wizard-choice-card:hover {
+    transform: none;
+  }
+
+  .play-cell:active {
+    transform: scale(0.96);
+  }
+}
+
+@media (min-width: 1400px) {
+  .app {
+    padding-left: max(24px, env(safe-area-inset-left, 0px));
+    padding-right: max(24px, env(safe-area-inset-right, 0px));
+  }
+
+  .wizard-center,
+  .manual-center {
+    padding: 32px 40px;
   }
 }
